@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
+
+from app.automation.routines import RoutineManager
+from app.commands.intent import IntentRouter
+from app.config.settings import settings
+from app.core.logger import log_event
+from app.core.state import state
+from app.memory.memory import MemoryStore
+from app.pc_control.actions import PCController
+from app.plugins.registry import PluginManager
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+WEB_DIR = BASE_DIR / "web"
+TEMPLATES_DIR = WEB_DIR / "templates"
+STATIC_DIR = WEB_DIR / "static"
+
+
+def _require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="API key inválida.")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Jarvis Control Center")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+    router = IntentRouter()
+    memory = MemoryStore()
+    pc = PCController()
+    plugins = PluginManager()
+    routines = RoutineManager()
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse("index.html", {"request": request, "app_name": settings.jarvis_name})
+
+    @app.get("/api/status")
+    async def api_status(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+        return {
+            "status": state.status,
+            "voice": state.voice_state,
+            "microphone": state.microphone_state,
+            "night_mode": state.night_mode,
+            "suspend_ready": state.suspend_ready,
+            "plugins": plugins.list_plugins(),
+            "automations": state.automations,
+        }
+
+    @app.get("/api/system")
+    async def api_system(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+        info = pc.system_information()
+        return info
+
+    @app.get("/api/plugins")
+    async def api_plugins(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+        return {"plugins": plugins.list_plugins()}
+
+    @app.get("/api/memory")
+    async def api_memory(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+        return {"items": memory.list()}
+
+    @app.post("/api/chat")
+    async def api_chat(payload: dict[str, str], _: None = Depends(_require_api_key)) -> dict[str, Any]:
+        message = payload.get("message", "")
+        log_event("INFO", "User command received", message=message)
+        intent = router.route(message)
+        memory.append_history(message, intent.intent, "OK")
+        state.last_command = message
+        state.last_response = intent.response
+        if intent.intent == "night_mode":
+            result = routines.trigger_night_mode()
+            return {"intent": intent.intent, "response": intent.response, "routine": result}
+        if intent.intent == "morning_routine":
+            result = routines.trigger_morning_routine()
+            return {"intent": intent.intent, "response": intent.response, "routine": result}
+        return {"intent": intent.intent, "response": intent.response, "action": intent.action, "target": intent.target}
+
+    @app.post("/api/command")
+    async def api_command(payload: dict[str, Any], _: None = Depends(_require_api_key)) -> dict[str, Any]:
+        action = payload.get("action")
+        target = payload.get("target")
+        confirmed = bool(payload.get("confirmed", False))
+        if not action:
+            raise HTTPException(status_code=400, detail="Action required.")
+        try:
+            result = pc.execute(action, target, confirmed=confirmed)
+            return {"status": "ok", "result": result}
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/automation/start")
+    async def api_automation_start(payload: dict[str, str], _: None = Depends(_require_api_key)) -> dict[str, Any]:
+        name = payload.get("name", "")
+        state.automations.append(name)
+        return {"status": "started", "name": name}
+
+    @app.post("/api/automation/stop")
+    async def api_automation_stop(payload: dict[str, str], _: None = Depends(_require_api_key)) -> dict[str, Any]:
+        name = payload.get("name", "")
+        if name in state.automations:
+            state.automations.remove(name)
+        return {"status": "stopped", "name": name}
+
+    @app.post("/api/stop-all-actions")
+    async def api_stop_all_actions(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+        state.automations.clear()
+        return routines.stop_all_automations()
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jarvis Control Center</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="hud-shell">
+      <div class="top-bar">
+        <div class="brand-block">
+          <span class="brand-name">{{ app_name }}</span>
+          <span class="brand-subtitle">CENTRO DE CONTROL</span>
+        </div>
+        <div class="status-badges">
+          <span id="state-badge" class="badge active">ACTIVE</span>
+          <span id="voice-badge" class="badge">VOICE IDLE</span>
+        </div>
+      </div>
+
+      <main class="dashboard">
+        <section class="core-panel center-panel">
+          <div class="orbital-ring">
+            <div class="core-orb">
+              <div class="pulse-core"></div>
+            </div>
+          </div>
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <span class="label">CPU</span>
+              <span id="cpu-value" class="value">--</span>
+            </div>
+            <div class="metric-item">
+              <span class="label">RAM</span>
+              <span id="ram-value" class="value">--</span>
+            </div>
+            <div class="metric-item">
+              <span class="label">DISK</span>
+              <span id="disk-value" class="value">--</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side-panel right-panel">
+          <div class="panel-block">
+            <h3>Estado del Sistema</h3>
+            <ul id="system-list" class="status-list">
+              <li>Estado: <span id="status-value">ACTIVE</span></li>
+              <li>Modo nocturno: <span id="night-mode">NO</span></li>
+              <li>Micrófono: <span id="mic-value">ACTIVO</span></li>
+            </ul>
+          </div>
+
+          <div class="panel-block">
+            <h3>Plugins</h3>
+            <div id="plugins-list" class="tags"></div>
+          </div>
+        </aside>
+
+        <section class="lower-panel command-panel">
+          <h3>Comandos recientes</h3>
+          <div id="history-list" class="history-list"></div>
+        </section>
+
+        <section class="lower-panel actions-panel">
+          <h3>Controles</h3>
+          <div class="action-row">
+            <button class="control-button" data-action="open_application" data-target="Chrome">Abrir Chrome</button>
+            <button class="control-button" data-action="media_control" data-target="toggle">Media</button>
+            <button class="control-button danger" id="stop-all">DETENER TODAS LAS ACCIONES</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
